@@ -206,3 +206,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 Bot/token.env
+secrets/pondsupportbot2/telegram-token.env
+secrets/
+.env
