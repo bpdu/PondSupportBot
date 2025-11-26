@@ -4,23 +4,33 @@ import auth
 import features
 import utils
 
-user_mdns = {}
-telegram_token=utils.load_token("TELEGRAM")
+telegram_token = utils.load_token("TELEGRAM")
 bot = telebot.TeleBot(telegram_token)
 print("POND Mobile BOT is running...")
 
 # === In-memory storage ===
 user_mdns = {}
+user_actions = {}  # keeps user input # : "usage" или "refresh"
 
 
 # === Keyboards ===
 def main_menu_keyboard():
-    keyboard = telebot.types.InlineKeyboardMarkup()
-    keyboard.add(telebot.types.InlineKeyboardButton(text="Contact Support", callback_data="support"))
-    keyboard.add(telebot.types.InlineKeyboardButton(text="Contact Sales", callback_data="sales"))
-    keyboard.add(telebot.types.InlineKeyboardButton(text="Check Usage", callback_data="check_usage"))
-    keyboard.add(telebot.types.InlineKeyboardButton(text="Check Coverage", url="www.pondmobile.com/coverage-map-pm"))
-    keyboard.add(telebot.types.InlineKeyboardButton(text="Refresh Line", callback_data="refresh_line"))
+    keyboard = telebot.types.InlineKeyboardMarkup(row_width=2)
+
+    keyboard.add(
+        telebot.types.InlineKeyboardButton(text="Check Usage", callback_data="check_usage"),
+        telebot.types.InlineKeyboardButton(text="Refresh Line", callback_data="refresh_line")
+    )
+
+    keyboard.add(
+        telebot.types.InlineKeyboardButton(text="Check Coverage", url="www.pondmobile.com/coverage-map-pm")
+    )
+
+    keyboard.add(
+        telebot.types.InlineKeyboardButton(text="Contact Support", callback_data="support"),
+        telebot.types.InlineKeyboardButton(text="Contact Sales", callback_data="sales")
+    )
+
     return keyboard
 
 
@@ -32,17 +42,23 @@ def back_menu_keyboard(prev_section=None):
     return keyboard
 
 
+def send_welcome_text(chat_id):
+    try:
+        content = utils.load_prompt("welcome")
+        if not content or not content.strip():
+            raise ValueError("welcome.txt is empty")
+    except (FileNotFoundError, ValueError):
+        content = "📱 Welcome to POND Mobile Bot!\nPlease choose an option below:"
+    bot.send_message(chat_id, content, reply_markup=main_menu_keyboard())
+
+
 # === /start command ===
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     stat = utils.load_stat()
     stat["visitors"] += 1
     utils.save_stat(stat)
-    bot.send_message(
-        message.chat.id,
-        "📱 Welcome to POND Mobile Bot!\nPlease choose an option below:",
-        reply_markup=main_menu_keyboard()
-    )
+    send_welcome_text(message.chat.id)
 
 
 # === Handle button presses ===
@@ -51,18 +67,27 @@ def handle_callback(call):
     chat_id = call.message.chat.id
 
     if call.data == "main_menu":
-        bot.send_message(
-            chat_id,
-            "📱 Welcome to POND Mobile Bot!\nPlease choose an option below:",
-            reply_markup=main_menu_keyboard()
-        )
+        send_welcome_text(chat_id)
 
     elif call.data == "check_usage":
+        user_actions[chat_id] = "usage"
         utils.increment_button("usage")
+
         keyboard = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        button = telebot.types.KeyboardButton(text="Share my phone", request_contact=True)
+        button = telebot.types.KeyboardButton(text="📱 Share my phone", request_contact=True)
         keyboard.add(button)
-        bot.send_message(call.message.chat.id, "Please share your phone number:", reply_markup=keyboard)
+
+        bot.send_message(chat_id, "Please share your phone number to check your data usage:", reply_markup=keyboard)
+
+    elif call.data == "refresh_line":
+        user_actions[chat_id] = "refresh"
+        utils.increment_button("refresh")
+
+        keyboard = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        button = telebot.types.KeyboardButton(text="📱 Share my phone", request_contact=True)
+        keyboard.add(button)
+
+        bot.send_message(chat_id, "Please share your phone number to refresh your line:", reply_markup=keyboard)
 
     elif call.data == "support":
         utils.increment_button("support")
@@ -80,31 +105,12 @@ def handle_callback(call):
         except FileNotFoundError:
             bot.send_message(chat_id, "⚠️ File resources/sales.txt not found.", reply_markup=back_menu_keyboard("main_menu"))
 
-    elif call.data == "check_usage":
-        utils.increment_button("usage")
-        keyboard = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        button = telebot.types.KeyboardButton("📱 Share my phone", request_contact=True)
-        keyboard.add(button)
-        bot.send_message(chat_id, "Please share your phone number to check your data usage:", reply_markup=keyboard)
-
-    elif call.data == "refresh_line":
-        utils.increment_button("refresh")
-        keyboard = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        button = telebot.types.KeyboardButton("📱 Share my phone", request_contact=True)
-        keyboard.add(button)
-        bot.send_message(chat_id, "Please share your phone number to refresh your line:", reply_markup=keyboard)
-
     elif call.data == "support_back":
         bot.send_message(
-            call.message.chat.id,
+            chat_id,
             "🧑‍💻 Support menu:",
             reply_markup=back_menu_keyboard(prev_section="main_menu")
         )
-    elif call.data == "refresh_line":
-        keyboard = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        button = telebot.types.KeyboardButton(text="Share my phone", request_contact=True)
-        keyboard.add(button)
-        bot.send_message(call.message.chat.id, "Please share your phone number to refresh your line:", reply_markup=keyboard)
 
 
 # === Handle shared phone contact ===
@@ -120,20 +126,23 @@ def process_contact(message):
     if not line_id:
         bot.send_message(message.chat.id, "❌ Your number is not registered as a POND Mobile customer.")
         bot.send_message(message.chat.id, "🏠 Returning to main menu...", reply_markup=main_menu_keyboard())
+        user_actions.pop(message.chat.id, None)
         return
 
-    last_message = message.reply_to_message
-    if last_message and "refresh your line" in (last_message.text or "").lower():
-        message_text, keyboard = features.handle_refresh_request(phone_number)
+    action = user_actions.get(message.chat.id)
+
+    if action == "refresh":
+        message_text = features.handle_refresh_request(phone_number)
         bot.send_message(
             message.chat.id,
             message_text,
-            reply_markup=keyboard,
-            parse_mode="Markdown",
+            reply_markup=back_menu_keyboard("main_menu"),
             disable_web_page_preview=True
         )
+        user_actions.pop(message.chat.id, None)
         return
 
+    # default -> usage
     bot.send_message(message.chat.id, "Please wait, I'm checking your data usage...")
     user_usage = features.check_usage(line_id)
     bot.send_message(
@@ -143,6 +152,7 @@ def process_contact(message):
         parse_mode="Markdown",
         disable_web_page_preview=True
     )
+    user_actions.pop(message.chat.id, None)
 
 
 # === Block manual typing (disable text input) ===
