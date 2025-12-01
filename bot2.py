@@ -10,7 +10,7 @@ print("POND Mobile BOT is running...")
 
 # === In-memory storage ===
 user_mdns = {}
-user_actions = {}  # keeps user input # : "usage" или "refresh"
+user_actions = {}  # keeps user input: "usage" or "refresh"
 
 
 # === Keyboards ===
@@ -23,7 +23,10 @@ def main_menu_keyboard():
     )
 
     keyboard.add(
-        telebot.types.InlineKeyboardButton(text="Check Coverage", url="www.pondmobile.com/coverage-map-pm")
+        telebot.types.InlineKeyboardButton(
+            text="Check Coverage",
+            url="www.pondmobile.com/coverage-map-pm"
+        )
     )
 
     keyboard.add(
@@ -48,7 +51,7 @@ def send_welcome_text(chat_id):
         if not content or not content.strip():
             raise ValueError("welcome.txt is empty")
     except (FileNotFoundError, ValueError):
-        content = "📱 Welcome to POND Mobile Bot!\nPlease choose an option below:"
+        content = utils.load_prompt("welcome_fallback")
     bot.send_message(chat_id, content, reply_markup=main_menu_keyboard())
 
 
@@ -77,7 +80,8 @@ def handle_callback(call):
         button = telebot.types.KeyboardButton(text="📱 Share my phone", request_contact=True)
         keyboard.add(button)
 
-        bot.send_message(chat_id, "Please share your phone number to check your data usage:", reply_markup=keyboard)
+        text = utils.load_prompt("share_phone_usage")
+        bot.send_message(chat_id, text, reply_markup=keyboard)
 
     elif call.data == "refresh_line":
         user_actions[chat_id] = "refresh"
@@ -87,7 +91,8 @@ def handle_callback(call):
         button = telebot.types.KeyboardButton(text="📱 Share my phone", request_contact=True)
         keyboard.add(button)
 
-        bot.send_message(chat_id, "Please share your phone number to refresh your line:", reply_markup=keyboard)
+        text = utils.load_prompt("share_phone_refresh")
+        bot.send_message(chat_id, text, reply_markup=keyboard)
 
     elif call.data == "support":
         utils.increment_button("support")
@@ -95,7 +100,11 @@ def handle_callback(call):
             content = utils.load_prompt("support")
             bot.send_message(chat_id, content, reply_markup=back_menu_keyboard("main_menu"))
         except FileNotFoundError:
-            bot.send_message(chat_id, "⚠️ File resources/support.txt not found.", reply_markup=back_menu_keyboard("main_menu"))
+            bot.send_message(
+                chat_id,
+                "⚠️ File resources/support.txt not found.",
+                reply_markup=back_menu_keyboard("main_menu")
+            )
 
     elif call.data == "sales":
         utils.increment_button("sales")
@@ -103,7 +112,11 @@ def handle_callback(call):
             content = utils.load_prompt("sales")
             bot.send_message(chat_id, content, reply_markup=back_menu_keyboard("main_menu"))
         except FileNotFoundError:
-            bot.send_message(chat_id, "⚠️ File resources/sales.txt not found.", reply_markup=back_menu_keyboard("main_menu"))
+            bot.send_message(
+                chat_id,
+                "⚠️ File resources/sales.txt not found.",
+                reply_markup=back_menu_keyboard("main_menu")
+            )
 
     elif call.data == "support_back":
         bot.send_message(
@@ -117,15 +130,21 @@ def handle_callback(call):
 @bot.message_handler(content_types=["contact"])
 def process_contact(message):
     phone_number = message.contact.phone_number
-    user_mdns[message.chat.id] = auth.normalize_mdn(phone_number)
+    normalized_mdn = auth.normalize_mdn(phone_number)
+    user_mdns[message.chat.id] = normalized_mdn
 
     remove_keyboard = telebot.types.ReplyKeyboardRemove()
-    bot.send_message(message.chat.id, "Thanks! Verifying your account...", reply_markup=remove_keyboard)
+    verifying_text = utils.load_prompt("verifying_account")
+    bot.send_message(message.chat.id, verifying_text, reply_markup=remove_keyboard)
 
-    line_id = auth.get_line_id(phone_number)
+    line_id = auth.get_line_id(normalized_mdn)
     if not line_id:
-        bot.send_message(message.chat.id, "❌ Your number is not registered as a POND Mobile customer.")
-        bot.send_message(message.chat.id, "🏠 Returning to main menu...", reply_markup=main_menu_keyboard())
+        not_registered_text = utils.load_prompt("not_registered")
+        bot.send_message(message.chat.id, not_registered_text)
+
+        returning_text = utils.load_prompt("returning_main_menu")
+        bot.send_message(message.chat.id, returning_text, reply_markup=main_menu_keyboard())
+
         user_actions.pop(message.chat.id, None)
         return
 
@@ -143,7 +162,9 @@ def process_contact(message):
         return
 
     # default -> usage
-    bot.send_message(message.chat.id, "Please wait, I'm checking your data usage...")
+    wait_text = utils.load_prompt("usage_checking_wait")
+    bot.send_message(message.chat.id, wait_text)
+
     user_usage = features.check_usage(line_id)
     bot.send_message(
         message.chat.id,
@@ -158,9 +179,10 @@ def process_contact(message):
 # === Block manual typing (disable text input) ===
 @bot.message_handler(content_types=["text"])
 def block_text(message):
+    warning_text = utils.load_prompt("block_text_warning")
     bot.send_message(
         message.chat.id,
-        "⚠️ Please use the buttons below.",
+        warning_text,
         reply_markup=main_menu_keyboard()
     )
 
