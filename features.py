@@ -1,13 +1,18 @@
 import os
 import requests
+import pathlib
 from dotenv import load_dotenv
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from utils import load_prompt, refresh_line
+from auth import normalize_mdn, get_line_id  # <-- moved here
 
 print("[DEBUG] Loaded features.py from:", __file__)
 
+# Base directory (folder where this file is located)
+BASE_DIR = pathlib.Path(__file__).resolve().parent
+
 # === Load BeQuick token ===
-dotenv_path = "secrets/pondsupportbot2/bequick.env"
+dotenv_path = BASE_DIR / "secrets" / "pondsupportbot2" / "bequick.env"
 load_dotenv(dotenv_path)
 
 API_URL = "https://pondmobile-atom-api.bequickapps.com"
@@ -59,27 +64,29 @@ def check_usage(line_id: int | str):
 
 # === Handle refresh request ===
 def handle_refresh_request(phone_number: str):
-    """
-    Creates message + inline button for contacting @pondsupport
-    and inserts MDN into refresh.txt template.
-    """
-    from auth import normalize_mdn, get_line_id
-
     mdn = normalize_mdn(phone_number)
     line_id = get_line_id(mdn)
 
     if not line_id:
-        return "❌ Your number is not registered as a POND mobile customer."
+        return load_prompt("not_registered")
 
-    # support chat link
-    url = refresh_line(mdn)
+    url = f"{API_URL}/lines/{line_id}/network_reset"
+    headers = {"X-AUTH-TOKEN": API_TOKEN, "Content-Type": "application/json"}
 
-    # load template and insert MDN + link
-    template = load_prompt("refresh")
-    message = template.format(mdn=mdn)
+    print(f"[BeQuick Refresh] POST {url} (mdn={mdn})")
 
-    # create inline button for Telegram
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton(text="💬 Open Support Chat", url=url))
+    try:
+        response = requests.post(url, headers=headers, timeout=10)
+        print(f"[BeQuick Refresh] Status: {response.status_code}")
 
-    return message, keyboard
+        # treat only 200 as success
+        if response.status_code == 200:
+            return load_prompt("refresh_success")
+
+        template = load_prompt("refresh_failed")
+        return template.format(status=response.status_code)
+
+    except requests.exceptions.RequestException as e:
+        print(f"[BeQuick Refresh] Connection error: {e}")
+        return load_prompt("bequick_error")
+

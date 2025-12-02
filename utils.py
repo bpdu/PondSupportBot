@@ -7,11 +7,14 @@ import subprocess
 import urllib.parse
 from dotenv import load_dotenv
 
+# Base project directory (folder where utils.py is located)
+BASE_DIR = pathlib.Path(__file__).resolve().parent
+
 
 # === Load text prompt ===
 def load_prompt(name: str) -> str:
-    path = f"resources/{name}.txt"
-    if not os.path.exists(path):
+    path = BASE_DIR / "resources" / f"{name}.txt"
+    if not path.exists():
         raise FileNotFoundError(f"[ERROR] File not found: {path}")
     with open(path, "r", encoding="utf8") as file:
         return file.read()
@@ -19,8 +22,8 @@ def load_prompt(name: str) -> str:
 
 # === Load token from .env file ===
 def load_token(name: str) -> str:
-    dotenv_path = f"secrets/pondsupportbot2/{name}.env"
-    if not os.path.exists(dotenv_path):
+    dotenv_path = BASE_DIR / "secrets" / "pondsupportbot2" / f"{name}.env"
+    if not dotenv_path.exists():
         raise FileNotFoundError(f"[ERROR] Env file not found: {dotenv_path}")
 
     load_dotenv(dotenv_path)
@@ -39,14 +42,10 @@ def refresh_line(mdn: str) -> str:
 
 
 # === Path for usage stats ===
-STAT_FILE = pathlib.Path("stat/stat.json")
+STAT_FILE = BASE_DIR / "stat" / "stat.json"
 
 
 def load_stat():
-    """
-    Loads bot statistics (visitors, button clicks).
-    Creates default structure if file does not exist.
-    """
     if not STAT_FILE.exists():
         return {
             "visitors": 0,
