@@ -2,9 +2,8 @@ import os
 import requests
 import pathlib
 from dotenv import load_dotenv
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from utils import load_prompt, refresh_line
-from auth import normalize_mdn, get_line_id  # <-- moved here
+from auth import normalize_mdn, get_line_id
 
 print("[DEBUG] Loaded features.py from:", __file__)
 
@@ -79,7 +78,6 @@ def handle_refresh_request(phone_number: str):
         response = requests.post(url, headers=headers, timeout=10)
         print(f"[BeQuick Refresh] Status: {response.status_code}")
 
-        # treat only 200 as success
         if response.status_code == 200:
             return load_prompt("refresh_success")
 
@@ -89,4 +87,3 @@ def handle_refresh_request(phone_number: str):
     except requests.exceptions.RequestException as e:
         print(f"[BeQuick Refresh] Connection error: {e}")
         return load_prompt("bequick_error")
-
