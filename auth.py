@@ -73,4 +73,5 @@ def is_client(mdn: str) -> bool:
 
 
 def is_manager(mdn: str) -> bool:
-    return normalize_mdn(mdn) in MANAGERS
+    normalized = normalize_mdn(mdn)
+    return normalized in MANAGERS and is_client(normalized)

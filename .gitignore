@@ -203,3 +203,4 @@ cython_debug/
 
 secrets/
 *.env
+resources/pond_manager_access.txt
