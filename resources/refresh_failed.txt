@@ -1,1 +1,1 @@
-❌ Refresh failed (status {status})
+❌ Refresh failed (status {status}) ❌
