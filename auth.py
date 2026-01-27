@@ -1,4 +1,3 @@
-# auth.py
 import re
 import requests
 import utils
@@ -7,13 +6,11 @@ import os
 API_TOKEN = utils.load_token("BEQUICK")
 API_URL = "https://pondmobile-atom-api.bequickapps.com"
 
-
 def normalize_mdn(phone_number: str) -> str:
     digits = re.sub(r"\D", "", phone_number)
     if len(digits) == 11 and digits.startswith("1"):
         digits = digits[1:]
     return digits
-
 
 def load_managers_list(path: str | None = None) -> set:
     if path is None:
@@ -38,9 +35,7 @@ def load_managers_list(path: str | None = None) -> set:
     print(f"[AUTH] loaded {len(managers)} managers: {managers}")
     return managers
 
-
 MANAGERS = load_managers_list()
-
 
 def get_line_id(mdn: str):
     clean_mdn = normalize_mdn(mdn)
@@ -67,10 +62,8 @@ def get_line_id(mdn: str):
         print(f"[BeQuick] Connection error: {e}")
         return None
 
-
 def is_client(mdn: str) -> bool:
     return get_line_id(mdn) is not None
-
 
 def is_manager(mdn: str) -> bool:
     normalized = normalize_mdn(mdn)
