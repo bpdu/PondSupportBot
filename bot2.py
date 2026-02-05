@@ -80,15 +80,15 @@ def get_otp_bot_username() -> str | None:
 OTP_BOT_USERNAME = get_otp_bot_username()
 
 
-def kb_otp_link():
-    if not OTP_BOT_USERNAME:
-        return None
-    kb = telebot.types.InlineKeyboardMarkup()
-    kb.add(telebot.types.InlineKeyboardButton("Open OTP bot", url=f"https://t.me/{OTP_BOT_USERNAME}"))
+def kb_otp_delivery():
+    kb = telebot.types.InlineKeyboardMarkup(row_width=1)
+    if OTP_BOT_USERNAME:
+        kb.add(telebot.types.InlineKeyboardButton("Open OTP chat", url=f"https://t.me/{OTP_BOT_USERNAME}"))
+    kb.add(telebot.types.InlineKeyboardButton("Retry sending code", callback_data="otp_retry"))
     return kb
 
 
-def kb_main(chat_id: int):
+def kb_main():
     kb = telebot.types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         telebot.types.InlineKeyboardButton("Check Usage", callback_data="check_usage"),
@@ -99,8 +99,6 @@ def kb_main(chat_id: int):
         telebot.types.InlineKeyboardButton("Contact Support", callback_data="support"),
         telebot.types.InlineKeyboardButton("Contact Sales", callback_data="sales"),
     )
-    if OTP_BOT_USERNAME and chat_id not in otp_bot_allowed:
-        kb.add(telebot.types.InlineKeyboardButton("Open OTP bot", url=f"https://t.me/{OTP_BOT_USERNAME}"))
     return kb
 
 
@@ -134,7 +132,7 @@ def kb_mgr_refresh():
 
 def kb_share_phone():
     kb = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    kb.add(telebot.types.KeyboardButton("📱 Share my POND phone number", request_contact=True))
+    kb.add(telebot.types.KeyboardButton("📱 Share my phone", request_contact=True))
     return kb
 
 
@@ -142,21 +140,11 @@ def welcome(chat_id: int):
     content = utils.load_prompt("welcome")
     if not content.strip():
         content = utils.load_prompt("welcome_fallback")
-    send(bot, chat_id, content, reply_markup=kb_main(chat_id))
-
-
-def maybe_hint_otp(chat_id: int):
-    if chat_id in otp_bot_allowed:
-        return
-    kb = kb_otp_link()
-    if not kb:
-        return
-    send(bot, chat_id, "Open the OTP bot and press Start once to receive verification codes.", reply_markup=kb)
+    send(bot, chat_id, content, reply_markup=kb_main())
 
 
 def ask_phone(chat_id: int, prompt_name: str):
     send(bot, chat_id, utils.load_prompt(prompt_name), reply_markup=kb_share_phone())
-    maybe_hint_otp(chat_id)
 
 
 def otp_send(chat_id: int, code: str) -> bool:
@@ -166,52 +154,13 @@ def otp_send(chat_id: int, code: str) -> bool:
     return ok
 
 
-def require_otp(chat_id: int, mdn: str | None, action: dict):
-    if not mdn:
-        send(bot, chat_id, utils.load_prompt("not_registered"))
-        welcome(chat_id)
-        return
-
-    if is_verified(chat_id):
-        post_otp_action[chat_id] = action
-        run_action(chat_id, mdn)
-        return
-
-    post_otp_action[chat_id] = action
-    code = otp.start(chat_id, mdn)
-
-    if otp_send(chat_id, code):
-        send(bot, chat_id, "The verification code was sent in a separate OTP chat. Please enter it here.")
-        return
-
-    kb = kb_otp_link()
-    if kb:
-        send(bot, chat_id, "Open the OTP bot and press Start once. Then try again.", reply_markup=kb)
-    else:
-        send(bot, chat_id, "Open the OTP bot and press Start once. Then try again.")
-
-
-def do_usage(chat_id: int, mdn: str):
-    line_id = auth.get_line_id(mdn)
-    if not line_id:
-        send(bot, chat_id, utils.load_prompt("not_registered"))
-        welcome(chat_id)
-        return
-    send(bot, chat_id, utils.load_prompt("usage_checking_wait"))
-    usage = features.check_usage(line_id)
+def request_otp_delivery(chat_id: int):
     send(
         bot,
         chat_id,
-        usage,
-        reply_markup=kb_back("main_menu"),
-        parse_mode="Markdown",
-        disable_web_page_preview=True,
+        "Open the OTP chat to enable delivery, then tap Retry.",
+        reply_markup=kb_otp_delivery(),
     )
-
-
-def do_refresh(chat_id: int, mdn: str):
-    msg = features.handle_refresh_request(mdn)
-    send(bot, chat_id, msg, reply_markup=kb_back("main_menu"), disable_web_page_preview=True)
 
 
 def run_action(chat_id: int, mdn: str):
@@ -240,13 +189,56 @@ def run_action(chat_id: int, mdn: str):
         welcome(chat_id)
 
 
+def require_otp(chat_id: int, mdn: str | None, action: dict):
+    if not mdn:
+        send(bot, chat_id, utils.load_prompt("not_registered"))
+        welcome(chat_id)
+        return
+
+    if is_verified(chat_id):
+        post_otp_action[chat_id] = action
+        run_action(chat_id, mdn)
+        return
+
+    post_otp_action[chat_id] = action
+    code = otp.start(chat_id, mdn)
+
+    if otp_send(chat_id, code):
+        send(bot, chat_id, "The verification code was sent in the OTP chat. Enter it here within 60 seconds.")
+        return
+
+    request_otp_delivery(chat_id)
+
+
+def do_usage(chat_id: int, mdn: str):
+    line_id = auth.get_line_id(mdn)
+    if not line_id:
+        send(bot, chat_id, utils.load_prompt("not_registered"))
+        welcome(chat_id)
+        return
+    send(bot, chat_id, utils.load_prompt("usage_checking_wait"))
+    usage = features.check_usage(line_id)
+    send(
+        bot,
+        chat_id,
+        usage,
+        reply_markup=kb_back("main_menu"),
+        parse_mode="Markdown",
+        disable_web_page_preview=True,
+    )
+
+
+def do_refresh(chat_id: int, mdn: str):
+    msg = features.handle_refresh_request(mdn)
+    send(bot, chat_id, msg, reply_markup=kb_back("main_menu"), disable_web_page_preview=True)
+
+
 @bot.message_handler(commands=["start"])
 def on_start(message):
     stat = utils.load_stat()
     stat["visitors"] += 1
     utils.save_stat(stat)
     welcome(message.chat.id)
-    maybe_hint_otp(message.chat.id)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -256,6 +248,20 @@ def on_callback(call):
 
     if data == "main_menu":
         welcome(chat_id)
+        return
+
+    if data == "otp_retry":
+        if not otp.is_waiting(chat_id):
+            send(bot, chat_id, "No active verification. Please try again from the main menu.", reply_markup=kb_main())
+            return
+        code = otp.peek_code(chat_id)
+        if not code:
+            send(bot, chat_id, "The verification code expired. Please try again.", reply_markup=kb_main())
+            return
+        if otp_send(chat_id, code):
+            send(bot, chat_id, "The verification code was sent in the OTP chat. Enter it here within 60 seconds.")
+            return
+        request_otp_delivery(chat_id)
         return
 
     if data == "check_usage":
@@ -364,7 +370,7 @@ def on_text(message):
         do_refresh(chat_id, target)
         return
 
-    send(bot, chat_id, utils.load_prompt("block_text_warning"), reply_markup=kb_main(chat_id))
+    send(bot, chat_id, utils.load_prompt("block_text_warning"), reply_markup=kb_main())
 
 
 def run_polling():

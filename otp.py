@@ -28,6 +28,15 @@ def is_waiting(chat_id: int) -> bool:
         return False
     return True
 
+def peek_code(chat_id: int) -> str | None:
+    s = otp_state.get(chat_id)
+    if not s:
+        return None
+    if time.time() > s["expires_at"]:
+        otp_state.pop(chat_id, None)
+        return None
+    return s.get("code")
+
 def verify(chat_id: int, user_input: str) -> str:
     s = otp_state.get(chat_id)
     if not s:
